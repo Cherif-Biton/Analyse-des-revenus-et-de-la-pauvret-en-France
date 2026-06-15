@@ -1,0 +1,786 @@
+---
+title: "Rapport"
+author: "Biton Cherif SAKO/ 10-01-2026"
+date: "2026-01-14"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+#   Chargement des bibliothèques
+
+```{r Chargement des bibliothèques }
+library(tidyverse)
+library(doremifasolData)
+library(knitr)
+library(kableExtra)
+library(scales)
+library(ggthemes)
+library(e1071) # pour le calcul du coefficient de skewness
+library(corrplot) # pour la matrice de corrélation des indicateurs des NA
+
+```
+
+#   Chargement des bases de donnés
+
+
+```{r Chargement des bases de donnés }
+
+#On renomme ici la variable com en CODGEO dans la base cog_com_2019
+cog_com_2019_new <-  rename(cog_com_2019,CODGEO = com)
+
+# Le numéro de mon département 
+dep_choisi <- 82
+
+#La fusion de la base filosofi_com_2016 et de la variable "dep" de la base cog_com_2019 grâce à la variable CODGEO
+tab_jointe <- filosofi_com_2016 %>%
+  left_join(
+    cog_com_2019_new,
+    by = "CODGEO"
+  )
+
+
+#Création du  sous-ensemble donnees_dep qui ne contient que les communes de mon département (82). 
+donne_dep <- filter(tab_jointe, dep== 82)
+
+
+
+```
+
+*Dans cette partie, nous avons chargé les bases "filosofi_com_2016" et "cog_com_2019" . La base "tab_jointe" est la fusion de la base "filosofi_com_2016"(entièrement) et de la base "cog_com_2019_new". Cette fusion a été réalisée grâce à variable commune" CODGEO", qui était nommée "com" initialement dans la base "cog_com_2019". Quant à la base "donne_dep", c'est la base "tab_jointe" qui ne contient que les communes du département: 82.* 
+
+
+
+# Revue de la qualité des données
+
+
+###  A-) Visualisation Structure des bases
+
+```{r }
+str(filosofi_com_2016)
+str(cog_com_2019)
+```
+*la visualisation de str(filosofi_com_2016) renvoie que la base filosofi_com_2016 contient 34932 observations et 29 variables. Parmis lesquelles seules les variables CODGEO et LIBGEO sont catégorielles,les 27 autres sont numériques*
+
+*la visualisation de str(cog_com_2019) indique que la base cog_com_2019 contient 37930 observations et 11 variables.Toutes les 11 variables sont catégorielles*
+
+
+# B-)      Vérification des valeurs manquantes et leur traitement.
+
+L'étude des valeurs manquantes se fera sur la base tab_jointe dû au fait qu'elle est la combinaison des deux bases cog_com_2019 et filosofi_com_2016. Elle contient toutes les variables nécessaires pour la suite du projet.
+
+
+# B.1 ) Visualisation des valeurs manquantes par variable
+```{r }
+#Nombre total de NA de la base
+sum(is.na(tab_jointe))
+
+
+# Fonction pour calculer la proportion de valeurs manquantes
+prop_val_manq <- function(base){
+  #Calcul du nombre de valeurs manquantes par colonne
+  nb_val_man <- sapply(base, function(x) sum(is.na(x)))
+  
+  #Calcul de ma proportion de valeurs manquantes
+  prop_NA <- (nb_val_man / nrow(base))*100
+  
+  #Création d'un dataframe pour le résultat
+  resultat <- data.frame(Nombre_NA = nb_val_man, Proportion= prop_NA)
+  return(resultat)
+}
+visual<- prop_val_manq(tab_jointe)
+
+
+```
+*sum(is.na(tab_jointe))=801893, donc le nombre total de valeurs manquantes dans la base tab_jointe est de 801893*
+
+*La visaualisation de visual nous permet d'observer que toutes les variables catégorielles  hors mis les variables "can", "comparent", "dep", "reg" et "arr" ne présentent pas de variables manquantes. De plus, parmis les autres variables(numériques), seules les variables NBMENFISC16, NBPERSMENFISC16 et MED16 ont un taux de moins de 10% de valeurs manquantes, les autres en présentent plus de 84% .*
+
+*Pour la variable dep et reg, les valeurs manquantes sont dûes au faite que certaines communes associées ont le même code géographique que leur commune principale donc lors de la création de tab_jointe, on se retrouve avec des doublons de communes ce qui cause la présence des valeurs manquantes.*
+
+
+
+# B.2-) Vérification du types des valeurs manquantes
+
+#  a-) Visualisation de la matrice de corrélation des indicateurs de valeurs manquantes
+
+ Visualisation de la matrice de corrélation des indicateurs de valeurs manquantes se fera sur les variables qui interveneront dans la suite du projet.
+
+```{r }
+#Selection des variables d'intérêt
+Na_tab <- tab_jointe%>%
+  select(dep,NBMENFISC16, NBPERSMENFISC16, MED16, TP6016, RD16,TP60AGE116, TP60AGE216, TP60AGE316, TP60AGE416, TP60AGE516, TP60AGE616)%>%
+  mutate(across(everything(), ~ as.integer(is.na(.))))
+
+#la corrélation entre les variables de Na_tab
+correlation_na <- cor(Na_tab)
+
+#la matrice de corrélation
+matrice_corr <- corrplot(
+  correlation_na, 
+  method = "color",
+  type = "lower",      
+  addCoef.col = "black", 
+  tl.cex = 0.8,        
+  number.cex = 0.7,
+  col = colorRampPalette(c("red", "white", "blue"))(200))
+
+```
+
+
+*La matrice de corrélation des indicateurs de valeurs manquantes met en évidence les dépendances marquées entre certains groupes de variables. Cette dernière met la lumière sur le fait que les valeurs manquantes ne sont pas distribuées de manière totalement aléatoire. En effet, on remarque que les valeurs manquantes de la variable NBMENFISC16 (Nombre de ménages fiscaux) ne sont les résultats d'aucune autre variables de la base. Ce qui rend plausible l'hypothèse qu'elles (les NA) soient des MNAR (Missing Not At Random). En d'autres, ces NA sont la cause de la variable elle même. Conernant les NA des variables NBPERSMENFISC16 (Nombre de personnes dans les ménages fiscaux) et MED16 (Médiane du niveau vie (€)), elles sont liées directement aux NA de la variables NBMENFISC16, donc elles sont de types MAR (Missing At Random). Concernant les autres variables hors mis la variable dep qui n'a pas de NA, la probabilités que leurs NA soient de type MNAR est très grande car étant des sujets très sensibles pour un pays.* 
+
+
+# B.3-) Traitement des NA
+
+Les données de la base tab_jointe comportent des valeur manquantes, principalement liées sûrement à des effectifs communaux insuffisants. 
+Dans ce travail, aucun procédé d’imputation ne sera appliqué afin d’éviter toute distorsion des indicateurs de revenu et de pauvreté afin d'éviter tout biais.
+Les statistiques descriptives et graphiques seront calculées en excluant uniquement les observations manquantes concernées en se limitant ainsi qu'aux communes renseignées.
+Mais nous traiterons les NA des variables dep et reg afin que les bases "tabjointe" et "donne_dep" ne contiennent que les communes principales.
+
+
+```{r }
+tab_jointe <- filter(tab_jointe, !is.na(dep))
+donne_dep<- filter(donne_dep, !is.na(dep))
+```
+
+### C-) Vérification des doublons 
+
+```{r }
+tab_jointe[duplicated(tab_jointe),]
+
+```
+*tab_jointe[duplicated(tab_jointe),] =0, alors il n'y a pas de doublons dans la base tab_jointe*
+
+### D-) Résumé descriptive de la base tab_jointe
+
+```{r }
+
+summary(tab_jointe)
+```
+*summary(tab_jointe) renvoie le résumé des variables de la base tab_jointe*
+
+
+#         Introduction
+
+ Les facteurs socio-économiques tels que le revenus et la pauvreté constituent des enjeux majeurs en France avec des disparités territoriales. L'analyse statistique de ces phénomèes permet de mieux comprendre les conditions de vie entre ses territoires. Notre travail s'appuie sur les données communales issues de la base filosofi_com_2016 et cog_com_2019  de l'INSEE et vise à analyser la répartition des revenus et de la pauvreté à l'échelle nationale et départementale. De prime abord, nous effectuerons une analyse descriptive des données afin de mettre en évidence les principales disparités géographiques. Ensuite, nous developperons des fonctions pour comparer les distributions et les indicateurs du département 82 à ceux observé au niveau national. Enfin, une analyse aprofondie sera ménée afin d'interpréter les résultats obtenus au niveau du niveau de vie médian, de pauvreté et d'inégalités.
+
+
+
+#     PARTIE 1: Manipulation et Exploration des Données 
+##          Exercice 1.1: Vue d’ensemble géographique
+
+###   A- Extraction des variables d'intérêts
+
+```{r }
+#Création d'une nouvelle base contenant le nombre de départements, le nombre de communes, le nombre de ménagesNombre d’habitants de toutes les régions
+tab1 <- left_join(tab_jointe%>% select(CODGEO ,NBMENFISC16, NBPERSMENFISC16), cog_com_2019_new%>% select(CODGEO, reg,dep), by = "CODGEO")
+ 
+
+
+
+```
+*La table "tab1", est un tableau joint avec les variables : CODGEO(l'identifiant des communes principales) ,NBMENFISC16 (le nombre de ménages), NBPERSMENFISC16 (le nombre d'habitants par ménage), tiré de la base initiale "filosofi_com_2016". Et avec les varibles:CODGEO (l'indentifiant des communes principales et associées), reg(l'identifiant des régions) et dep(l'identifiant des départements) tiré de la base "cog_com_2019_new".*
+
+
+###     B- Groupage par régions 
+
+
+```{r }
+#Création et groupage de tabe2 par région
+tab2 <- tab1%>%
+  group_by(reg) %>%
+  summarise(nb_depart = n_distinct(dep),
+            nb_commune = n(),
+            nb_menage = sum(NBMENFISC16, na.rm = T),
+            nb_habitant = sum(NBPERSMENFISC16, na.rm = T)
+            )
+
+ #Triage de tab2 par ordre décroissant de la population et l'ajout de la variable "libelle" qui contient les noms des régions
+tab2 <- tab2 %>%
+  arrange(desc(nb_habitant))
+
+#Ajout de la ligne totale
+tab2 <- add_row(tab2,
+                reg = "Total",
+                nb_depart = sum(tab2$nb_depart),
+                nb_commune = sum(tab2$nb_commune),
+                nb_menage = sum(tab2$nb_menage),
+                nb_habitant = sum(tab2$nb_habitant))
+
+```
+*Dans cette partie, nous avons groupé les variables : "dep", "CODGEO", "NBMENFISC16", et "NBPERSMENFISC16" en fonction des régions.La base "tab2" est le tableau regroupant toutes ces variables en fonction de chaque région*
+
+
+###     C- Tableau récapitualtif et Interprétation
+
+```{r }
+#Utilisation de kable sur tab2
+tab2%>%
+  kable(
+    format = "html",
+    caption = "<span style='color:darkblue; font-weight:bold;'>Tableau récapitulatif</span>" ,
+    format.args = list(big.mark = " ")
+  ) %>%
+  kable_styling(
+    bootstrap_options = c("striped", "hover", "condensed"),
+    full_width = FALSE
+  ) %>%
+  add_header_above(c(" " = 1, "Valeurs" = 4)) %>%
+   row_spec(0:16, bold = TRUE, color = "black", background = "lightblue") %>%
+  column_spec(1:5, bold = TRUE,italic = TRUE, border_right = T)%>%
+  column_spec(1, border_left = T) %>%
+  row_spec(1:16, extra_css = "border-bottom: 1px solid black;")%>%
+  row_spec(0, extra_css = "border-top: 2px solid black; border-bottom: 2px solid black;")%>%
+  row_spec(16, extra_css = "border-bottom: 2px solid black;")
+
+```
+
+*L'observation du tableau récaptulatif met en évidence de fortes disparités régionales en termes de population et de structure territoriale avec une réparation asymétrique de la population par région. L'Île-de-France(reg 11) se distingue clairement à travers son nombre d'hibitants très élevé et concentré sur un nombre limité de communes, ce qui traduit une forte densité urbaine. A l'inverse, certaines régions moins peuplées regroupent un grand nombre de communes tel que Bourgogne-Franche-Comté(reg 27), révélant ainsi une région plus rurale et dispersé. Ces différences marquées dans l’organisation spatiale et démographique des régions françaises sont susceptibles d'influencer les niveaux de vie et les conditions socio-économiques.*
+
+
+
+
+
+##            Exercice 1.2: Analyse des niveaux de vie
+
+###        A- La répartition nationale du taux de pauvreté par tranche d'âge 
+
+####   A.1- Extraction des vriables d'intérêt 
+
+```{r}
+
+# Création d'une nouvelle base tab_poor_natio qui contiendra les taux de pauvreté par tranche d'âge de toute la France 
+ tab_poor_natio <- left_join(tab1 %>% select(CODGEO,dep), tab_jointe%>% select(CODGEO, TP60AGE116,TP60AGE216,TP60AGE316, TP60AGE416,TP60AGE516, TP60AGE616), by="CODGEO")
+ 
+
+ # Ici on renomme les variables des tranches d'âge 
+ names(tab_poor_natio)[names(tab_poor_natio) %in% c("TP60AGE116","TP60AGE216","TP60AGE316", "TP60AGE416","TP60AGE516", "TP60AGE616")] <- 
+  c("age_0_30","age_30_39","age_40_49","age_50_59","age_60_74","age_75")
+ 
+
+
+```
+
+
+####        A.2- Groupage du taux de pauvreté par tranche d'âge sur le territoire national
+
+```{r}
+# Calcul des moyennes  
+taux_moy_de_poor<- tab_poor_natio %>%
+  summarise(
+    age_0_30 = mean(age_0_30, na.rm = T),
+    age_30_39 = mean(age_30_39, na.rm = T),
+    age_40_49 = mean(age_40_49, na.rm = T),
+    age_50_59 = mean(age_50_59, na.rm = T),
+    age_60_74 = mean(age_60_74, na.rm = TRUE),
+    age_75 = mean( age_75, na.rm = TRUE)
+  )
+
+# On passe du format large au format long
+tab_poor_natio_lon <- tab_poor_natio%>%
+  pivot_longer( 
+    cols = c(age_0_30,age_30_39,age_40_49,age_50_59,age_60_74,age_75),
+    names_to = "tranche_age",
+    values_to = "taux_moy_de_poor")
+
+
+#Groupage par tranche d'âge des moyennes pondérées
+tab_poor_fianl <- tab_poor_natio_lon%>%
+  group_by(tranche_age)%>%
+  summarise(moy_nationale = mean(taux_moy_de_poor, na.rm = T))
+
+
+```
+
+
+####      A.3- Visualisation de la répartition nationale du taux de pauvreté par tranche d'âge
+
+
+```{r }
+
+ggplot(tab_poor_fianl, aes(x=tranche_age, y=moy_nationale,fill= tranche_age))+
+geom_bar(stat = "identity") +
+  geom_text(aes(label = paste0(round(moy_nationale, 1), "%")),vjust = -0.3,) +
+  labs(
+    title="La répartition nationale du taux de pauvreté par trance d'âge",
+  subtitle = "Données obtenues de la base tab_jointe",
+       x = " Tranche d'âge",
+  y= "Taux de pauvreté"
+       )+
+theme_minimal()
+
+
+```
+*A l’échelle nationale, le taux de pauvreté varie sensiblement selon les tranches d’âge.Il est particulièrement élevé chez les jeunes(29.4%), traduisant une plus grande vulnérabilité économique chez les plus jeunes, tandis qu'il est nettement plus faible chez les adultes et les personnes en âge avancé, qui peut s'expliquer par le fait qu'ils bénéficient en moyenne de revenus plus stables, et des pensions de retraite pour les personnes en âge avancé.*
+
+
+
+### B- Répartition départementale du taux de pauvreté par tranche d'âge
+
+#### B.1- Groupage des départements en fonction des tranches d'âges
+
+```{r }
+#Création d'une nouvelle base :les départements en fonction des tranches d'âge
+val_extreme1 <- tab_poor_natio|>
+  pivot_longer(cols = c( "age_0_30", "age_30_39", "age_40_49", "age_50_59", "age_60_74", "age_75"),
+               names_to = "tranche_age", 
+               values_to = "taux_pauvrete") |>
+  group_by(tranche_age) |>
+  summarise(
+    dep_min = dep[which.min(taux_pauvrete)],
+    taux_min = min(taux_pauvrete, na.rm = T),
+    dep_max = dep[which.max(taux_pauvrete)],
+    taux_max = max(taux_pauvrete, na.rm = T))
+
+#On passe du format large au format long
+val_extreme2 <- val_extreme1 |>
+  pivot_longer(
+    cols = c(taux_min, taux_max),
+    names_to = "Type_taux",
+    values_to = "Taux_poor")
+
+
+```
+
+
+
+####    B.2- Visualisation du graphique comparatif pour les extrêmes départementaux
+
+
+```{r}
+
+val_extreme2 <- val_extreme2 |>
+  mutate(
+    code_dep = if_else(Type_taux == "taux_min", dep_min, dep_max),
+    categorie = if_else(Type_taux == "taux_min", "Taux minimum", "Taux maximum")
+  )
+
+ggplot(val_extreme2, aes(x = tranche_age, y = Taux_poor, fill = categorie)) +
+  geom_col(position = position_dodge(width = 0.7), width = 0.6) +
+  geom_text(aes(label = paste0(code_dep, "\n", round(Taux_poor, 1), "%")),
+            position = position_dodge(width = 0.7), size = 3) +
+  scale_y_continuous(labels = scales::percent_format(scale = 1)) +
+  scale_fill_manual(values = c("Taux minimum" = "skyblue", "Taux maximum" = "darkgray")) +
+  labs(
+    title = "Départements extrêmes par tranche d'âge",
+    x = "Tranche d'âge",
+    y = "Taux de pauvreté (%)",
+    fill = ""
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+
+
+
+
+
+```
+
+*Le graphique met en évidence des écarts très importants de taux de pauvreté entre les départements extrêmes pour l’ensemble des tranches d’âge. Chez les moins de 30 ans, l’écart est particulièrement marqué, avec un taux pouvant atteindre environ 66 % dans le département le plus touché(dep 974), contre seulement 10 % dans le plus favorisé(dep 25). Cela montre que la situation des jeunes dépend fortement du contexte économique local, notamment de l’accès à l’emploi ou à la formation. Pour les classes d’âge intermédiaires (30 à 59 ans), les écarts restent très élevés, avec des taux maximaux compris entre 57 % et 65 %, contre environ  5 % dans les départements les moins touchés. Ces différences traduisent des contrastes importants de dynamisme économique et de structure de l’emploi entre les territoires. Chez les personnes âgées, les écarts persistent mais se stabilisent légèrement, ce qui peut s’expliquer par le rôle des retraites et des mécanismes de redistribution. Globalement, la pauvreté varie fortement selon les territoires, surtout chez les jeunes et les actifs, ce qui souligne l’importance des conditions économiques locales dans la formation des inégalités sociales.*
+
+
+
+
+#         Partite 2 : Les fonctions
+##      Exercice 2.1: Comparaison des distributions (la fonction : f.distrib() )
+
+```{r la fonction f.distrib()  }
+   
+
+f.distrib <- function(data, caractere, dep_select){
+  
+  # Nettoyage de la base de données data afin d'avaoir uniquement que les départements principaux sans les NA au niveau de la variable d'intérêt 
+  data <- data %>%
+    filter(!is.na({{ caractere }}), !is.na(dep))
+  
+  # var_name sctoke le nom de la variable d'intérêt
+  var_name <- rlang::as_name(rlang::ensym(caractere))
+
+  # Création d'une nouvelle variable dans la base data qui devient data1 "identifiant" de type caractère qui prend comme modalité "Département_et le numéro du département d'intérêt" si dep== dep_select sinon, elle prend "Toute la France"
+  data1 <- data %>%
+    mutate(identifiant = ifelse(dep == dep_select,
+        paste0("Département ", dep_select),
+        "Toute la France"))
+
+  
+  # Graphique de la densité
+  p_densite <- ggplot(data1, aes(x= {{caractere}})) +
+    geom_density(fill = "lightblue", color = "white")+
+    facet_wrap(~identifiant, nrow = 1, scales = "free_y") +
+    labs(
+      title = paste("Courbe de densité de", var_name),
+      x = var_name
+    ) +
+    theme_minimal()
+
+  
+  # Boxplot comparatif
+  p_box <- ggplot(data1, aes(x =identifiant, y ={{ caractere }})) +
+  geom_boxplot(fill ="lightblue") +
+  labs(
+    title = paste("Boxplot comparatif de", var_name),
+    x = "",
+    y = var_name
+  ) +
+  theme_minimal()
+
+# data_dep est une nouvelle base qui ne contient que les modalités de la variable d'intérêt du départemetent choisi
+  data_dep <- data1 %>%
+    filter(dep == dep_select) %>%
+    pull({{ caractere }})
+  # data_france est une nouvelle base qui ne contient que les modalités de la variable d'intérêt de toute la france sauf du dep82
+  data_france <- data1 %>%
+  filter(dep != dep_select) %>%
+  pull({{ caractere }})
+  
+# le test de symétrie de skew_val et l'interprétation
+  skew_val <- abs(skewness(data_dep, na.rm = TRUE))
+  interpretation <- case_when(skew_val <=0.1 ~ "La distribution départementale est quasi symétrique"
+                              ,skew_val >0.1 & skew_val <=0.5 ~ "La distribution départementale est faiblement asymétrique",
+    TRUE ~ "La distribution départementale est asymétrie"
+  )
+  
+  #Le test de Shapiro-wilk pour vérifier la normalité de la distribution de la variable d'intérêt
+  shapiro_dep<- shapiro.test(data_dep)
+
+  #Interpréation de la p_value du test de Shapiro
+  inter_normalite_dep <- case_when(shapiro_dep$p.value < 0.05 ~ "L'hypothèse de normalité est rejetée",
+                                   shapiro_dep$p.value > 0.05 ~ "L'hypothèse de non normalité est rejetée")
+  
+
+  return(list(
+    densité = p_densite,
+     boxplot = p_box,
+    coefficient_d_asymetrie = skew_val,
+    interpretation_asymetrie= interpretation,
+    p_value_dep = shapiro_dep,
+    interpretation_normalite_departemental= inter_normalite_dep))
+}
+
+```
+
+*La fonction f.distrib permet de visualiser la distribution d'un caractère continu. En effet, la fonction renvoie deux courbes de densités dont l'une présente l'asymétrie de la distribution du caratère d'intérêt de la France entière et l'autre celle d'un département quelconque. f.distrib renvoie également deux boxplots dont l'un présente la visualisation de la distribution du caractère d'intérêt de la France et l'autre celle d'un département quelconque.De plus, elle renvoie le coefficient d'asymétrie de skewness afin de déterminer si la distribution au niveau du département choisi de la variable d'intérêt est symétrique ou pas.*
+
+
+
+##      Exercice 2.2: Analyse et comparaison
+
+
+
+```{r la fonction f.anal()}
+ f.anal <- function(data, caractere, dep_select){
+  data <- data %>%
+    filter(!is.na({{ caractere }}), !is.na(dep))
+  
+  data1 <- data %>% select(dep,NBPERSMENFISC16,{{caractere}})
+  
+  var_name <- rlang::as_name(rlang::ensym(caractere))
+  
+  data_dep1 <- data1%>%
+    filter(dep == dep_select)
+  
+  moy_natio <- mean(data1[[var_name]],na.rm = T) 
+  moy_dep   <- mean(data_dep1[[var_name]],na.rm = T) 
+  med_natio <- median(data1[[var_name]], na.rm =T)
+  med_dep   <- median(data_dep1[[var_name]], na.rm =T)
+  sd_natio  <- sd(data1[[var_name]], na.rm =T)
+  sd_dep    <- sd(data_dep1[[var_name]], na.rm =T)
+  min_natio <- min(data1[[var_name]], na.rm =T)
+  min_dep   <- min(data_dep1[[var_name]], na.rm =T)
+  max_natio <- max(data1[[var_name]], na.rm =T )
+  max_dep   <- max(data_dep1[[var_name]], na.rm =T)
+  q1_natio  <- quantile(data1[[var_name]], 0.25, na.rm =T)
+  q1_dep    <- quantile(data_dep1[[var_name]], 0.25, na.rm =T)
+  q3_natio  <- quantile(data1[[var_name]], 0.75, na.rm =T)
+  q3_dep    <- quantile(data_dep1[[var_name]], 0.75, na.rm =T)
+  
+  data2 <- data1%>%
+    group_by(dep)%>%
+    summarise(!!var_name:= mean({{caractere}}, na.rm=T))
+  
+  data3<- data2 %>%
+    arrange(desc(!!sym(var_name))) %>%
+    mutate(rang = row_number()
+    )
+  
+  rang_dep <- data3 %>% filter(dep == dep_select) %>% pull(rang)
+  
+  data1_sans_dep <- data1 %>% filter(dep!= dep_select)
+  
+  p_value<- wilcox.test(data_dep1[[var_name]],data1_sans_dep[[var_name]],alternative = "two.sided")$p.value
+  
+  nom_dep <- paste("Département", dep_select)
+  
+  interpretation <- case_when(
+    p_value < 0.05 & med_dep< med_natio ~ paste(var_name, "est inférieure face à la France"),
+    p_value < 0.05 & med_dep> med_natio ~ paste(var_name,"est supérieure face à la France"),
+    T ~ paste(var_name,"est équivalente à la France")
+  )
+  
+  data_resume <- tibble::tibble(
+    indicateur =c("Moyenne", "Médiane", "Écart-type", "Minimum", "Maximum",
+                  "1er quartile", "3e quartile", "Rang", "La p_value","Interprétation","Total"),
+    La_France =c(moy_natio, med_natio, sd_natio, min_natio, max_natio,
+                 q1_natio, q3_natio, NA, NA,NA,sum(data1$NBPERSMENFISC16,na.rm=T)
+    ),
+    !!nom_dep:=c(moy_dep, med_dep, sd_dep, min_dep, max_dep,
+                 q1_dep, q3_dep, rang_dep, p_value, interpretation,sum(data_dep1$NBPERSMENFISC16,na.rm =T))
+  )
+  
+  tab_final <- data_resume%>%
+    kable(
+      format = "html",
+      caption = paste("Résumé pour le caractère", var_name),
+      format.args = list(big.mark = " ", decimal.mark = ",")
+    ) %>%
+    kable_styling(
+      bootstrap_options = c("striped", "hover", "condensed"),
+      full_width = F
+    ) %>%
+    row_spec(0:11, bold = TRUE, color = "black", background = "lightblue") %>%
+    column_spec(1:3, bold = TRUE,italic = TRUE, border_right = T)%>%
+    column_spec(1, border_left = T) %>%
+    row_spec(1:11, extra_css = "border-bottom: 1px solid black;")%>%
+    row_spec(0, extra_css = "border-top: 2px solid black; border-bottom: 2px solid black;")%>%
+    row_spec(11, extra_css = "border-bottom: 2px solid black;")
+  
+  return(knitr::asis_output(tab_final))
+  
+}
+```
+
+
+
+*La fonction f.anal renvoie un tableau comparatif du niveau national par rapport au niveau du département d'intérêt pour un caractère donné.Ici, le test de Wilcoxon est le mieux adapté car, il  compare la distribution communale du département à celle des communes  des autres départements, à partir des données brutes.*
+
+
+#                                   Partie 3
+
+##    3.1 Description des indicateurs soci-économiques tel que le niveau de vie médian, le taux de pauvreté et enfin le rapport interdécile du département 82
+
+###     A- Analyse du niveau de vie médian
+
+```{r }
+
+f.distrib(tab_jointe,MED16,dep_choisi)
+
+f.anal(tab_jointe,MED16,dep_choisi)
+
+
+```
+
+*L’analyse du niveau de vie dans le département 82, réalisée à l’aide des fonctions f.distrib() et f.anal(), met en évidence une distribution communale approximativement symétrique, comme l’indique le coefficient d’asymétrie de skewness très proche de 0 (0,006).Le test de Shapiro indique également qu'à 95% de certitude, cette distribution est normale (p-value = 0.9646). Cette observation est confirmée par  la courbe de densité et le boxplot, qui ne révèlent pas de dissymétrie marquée.*
+  *Par ailleurs, le boxplot ne met pas en évidence de valeurs aberrantes significatives.*
+  *Le tableau de synthèse indique que le département se situe au 86ᵉ rang sur 98 départements en termes de niveau de vie moyen.*
+  
+  
+  
+  ###                B- Analyse de la pauvreté
+  
+```{r }
+f.distrib(tab_jointe,TP6016, dep_choisi)
+
+f.anal(tab_jointe,TP6016, dep_choisi)
+
+```
+
+*L’analyse du taux de pauvreté dans le département 82, réalisée à l’aide des fonctions f.distrib() et f.anal(), met en évidence une distribution communale présentant une faible asymétrie, comme l’indique un coefficient de skewness positif de 0,42.Le test de Shapiro indique également qu'à 95% de certitude, cette distribution est normale(p-value = 0.3206). Cette observation est cohérente avec les graphiques produits, notamment la courbe de densité et le boxplot, qui suggèrent une distribution relativement équilibrée du taux de pauvreté entre les communes du département.*
+  *Par ailleurs, le boxplot ne met pas en évidence de valeurs aberrantes marquées, bien qu’il révèle une dispersion importante entre les communes présentant les taux de pauvreté les plus faibles et les plus élevés.*
+  *Le tableau de synthèse indique que le département se situe au 23ᵉ rang sur 98 départements en termes de taux de pauvreté, ce qui le place parmi les départements relativement plus touchés par la pauvreté.*
+  
+   ###               C - Analyse du rapport interdécile 
+  
+```{r }
+f.distrib(tab_jointe,RD16, dep_choisi)
+
+f.anal(tab_jointe,RD16, dep_choisi)
+```
+
+*L’analyse du rapport interdécile dans le département 82, réalisée à l’aide des fonctions f.distrib() et f.anal(), met en évidence une distribution communale présentant une asymétrie , comme l’indique un coefficient de skewness supérieur à 1 (1,07).Le test de Shapiro indique également qu'à 95% de certitude, cette distribution est anormale de p-value = 0.01274. Cette caractéristique est confirmée par la courbe de densité et le boxplot, qui révèlent une concentration des communes autour de valeurs relativement faibles, associée à quelques communes présentant des rapports interdéciles nettement plus élevés.*
+  *Le boxplot met en évidence la présence d’une observation extrême unique, correspondant à une commune dont le rapport interdécile est nettement plus élevé que celui des autres communes du département.*
+  *Le tableau de synthèse indique que le département se situe au 52ᵉ rang sur 98 départements en termes de rapport interdécile, ce qui le place dans une position intermédiaire au niveau national. *
+  
+  
+  
+##    3.2    Les questions statistiques
+
+  - Le niveau de vie médian dans le département82 est-il significativement différent de celui observé au niveau national?
+  - Le taux de pauvreté du département82 est-il plus élevé que la moyenne nationale?
+  - Le rapport interdécile (D9/D1) indique-t-il des inégalités de revenus plus fortes ou plus faibles entre les communes du département82 ?
+  - Les communes présentant des inégalités plus fortes sont-elles aussi celles où le taux de pauvreté est plus élevé ?
+  
+
+
+##      3.3    Plan d'analyse
+
+Pour analyser la situation socio-économique du département82, nous utiliserons les variables issues de la base tab_jointe, notamment le niveau de vie médian (MED16), le taux de pauvreté (TP6016), le rapport interdécile (RD16), la variable département (dep) et enfin le nombre de personnnes par ménage (NBPERSMENFISC16). La fonction f.distrib() sera utilisée pour comparer les distributions communales du département82 à celles observées au niveau national, à l’aide des graphiques en facettes. Les courbes de densité permettront d’étudier la forme des distributions, tandis que les boxplots mettront en évidence la dispersion des modalités et les valeurs extrêmes. La fonction f.anal() produira des tableaux de comparaison synthétisant les caractéristiques de position et de dispersion, ainsi que le rang du département82. Des tests statistiques non paramétriques de Wilcoxon seront utilisés afin d’évaluer la significativité des écarts observés entre le département82 et le reste de la France.Pour l'analyse bivariée, un test de spearman sera utilisée afin d'analyser la corrélation entre les variables. En plus du test de Spearman, un modèle linéaire simple sera mis en place pour étudier la causalité de la variable explicative sur la variable expliquée, un nuage de point viendra confirmé ou pas nos analyses. L’ensemble de ces outils permettra de répondre aux questions portant sur le niveau de vie, la pauvreté et les inégalités de revenus.
+
+
+
+#     Partie 4: Analyse Approfondie de votre département
+
+
+Nous allons d'abord extraire quelques informations du département 82 à savoir le nombre de communes le constituant, le nombre de ménages et de population. 
+
+
+```{r }
+
+info_dep82 <- tab_jointe%>%
+  filter(dep== dep_choisi)%>%
+  summarise(nb_commune = n(),
+            n_menage= sum(NBMENFISC16, na.rm = T),
+            nb_population = sum(NBPERSMENFISC16, na.rm = T))
+
+
+
+```
+Le département82 compte 195 communes avec une population totale de 252238 habitants répartis dans 	
+107185 ménages
+
+
+##      A-)        Analyse du niveau de vie (MED16)
+
+
+```{r }
+f.anal(tab_jointe, MED16, dep_choisi)
+f.distrib(tab_jointe, MED16, dep_choisi)
+
+
+```
+
+  
+  *Le tableau de synthèse indique que le niveau de vie médian du département82 est inférieur au niveau de vie national. Se situant au 86ᵉ rang sur 98 départements,il présente une situation économique relativement moins favorable. Ce qui indique que les revenus des ménages y sont plus modestes que dans le reste de la France. Cette situation peut s'expliquer par une structure économique plus rurale, une présence faibles d'emplois qualifiés ou de secteurs économique à forte valeur ajoutée, ainsi qu’un dynamisme économique moins marqué que dans les grandes villes.*
+*La dispersion des niveaux de vie entre communes reste toutefois modérée, ce qui suggère une certaine homogénéité interne.Dit autrement, le département82 ne semble pas être caractérisé par de fortes oppositions entre les communes très riches et très pauvres, mais plutôt par un ensemble de territoires présentant des niveaux de vies proches. Cela s'explique par le fait que le département82 est constitué de communes à dominance rurale.*
+  *La visualisation de la courbe de densité du niveau de vie médian du département82 met en évidence une distribution communale approximativement symétrique, comme l’indique le coefficient d’asymétrie de skewness très proche de 0 (0,0063).Cela confirme l'idée d'un département relativement équilibrée, sans présence marquée de communes extrêmement favorisées ou défavorisées.*
+  
+  
+  
+  
+  ###       B-)   Analyse du taux de pauvreté (TP6016)
+  
+
+  
+```{r }
+
+f.anal(tab_jointe, TP6016, dep_choisi)
+f.distrib(tab_jointe, TP6016, dep_choisi)
+
+
+
+```
+
+
+ *Le taux de pauvreté du département82 est supérieur à celui observé au niveau national, ce qui traduit une situation sociale plus fragile. Il se situe au 23ᵉ rang sur 98 départements en termes de taux de pauvreté, ce qui confirme cette position relativement défavorable. Cela indique qu'une proportion plus importante de ménages y vit sous le seuil de pauvreté. Cette situation s'explique par une structure économique moins dynamique, un marché du travail plus restreint ou une plus forte présence d'emplois peu qualifiés et faiblement rémunérés.*
+ *La dispersion observée entre les communes indique l’existence de contrastes internes, avec certaines communes nettement plus touchées par la pauvreté que d’autres. Ces écarts peuvent être liés à des différences d’accès à l’emploi, à la présence de pôles économiques locaux ou, au contraire, à des territoires plus isolés et moins attractifs.*
+ *L’analyse du taux de pauvreté dans le département 82 par le biais de la courbe de densité  met en évidence une distribution communale présentant une faible asymétrie, comme l’indique un coefficient de skewness positif de 0,42. Par ailleurs, le boxplot ne met pas en évidence de valeurs aberrantes marquées, bien qu’il révèle une dispersion importante des difficultés économiques entre les communes présentant les taux de pauvreté les plus faibles et les plus élevés.*
+ 
+  
+  
+   ##  C-)    Analyse du Rapport interdécile (RD16)
+   
+ 
+
+  
+```{r }
+
+ f.distrib(tab_jointe, RD16, dep_choisi)
+
+
+
+
+```
+*L’analyse de la distribution du rapport interdécile à l’aide de la fonction f.distrib() permet de situer le niveau d’inégalités du département 82 par rapport à l’ensemble du territoire national. Les courbes de densités mettent en évidence une distribution départementale plus concentrée et moins étalée que celle observée pour l’ensemble des communes françaises.*
+*Le département 82, ne semble pas présenter de valeurs extrêmes du rapport interdécile, ce qui indique une structure des revenus plus homogène entre ses communes. Sur le plan socio-économique, ce résultat est cohérent pour un département à dominance rurale (qui est le cas du département82), où les très hauts revenus sont moins présents que dans les grandes communes. L’absence de communes particulièrement riches limite les écarts de revenus, ce qui se traduit par un niveau d’inégalités plus modéré.*
+
+
+  
+  
+##    D-)  Les communes présentant des inégalités plus fortes sont-elles aussi celles où le taux de pauvreté est plus élevé ?
+
+
+#Modele de regression linéaire simple
+
+```{r}
+
+model1 <- lm(TP6016 ~ RD16,data = donne_dep )
+par(mfrow = c(2,2))
+plot(model1)
+test_normalite1 <- shapiro.test(residuals(model1))$p.value
+test_normalite1
+summary(model1)
+
+```
+  
+ 
+  Robustesse du modèle
+L'analyse visuelle des graphiques confirme que notre modèle est assez robuste.  
+Points clés :  
+- Linéarité : les résidus se répartissent aléatoirement autour de zéro ;  
+- Normalité :  Le test de Shapiro‑Wilk (p-value = `r test_normalite1`) montre que les erreurs suivent une distribution normale ;  
+- Homoscédasticité : La variance des erreurs est quasi constante ;  
+- R-squared : Le modèle explique à 72% les variations du taux de pauvreté  ce qui indique une précision élevée.
+-p-value(Test de Fisher)=2.534e-06: l'hypothèse selon laquelle le modèle n'est pas globalement significatif est rejettée à un seuil de 5%
+
+
+Nuage de point entre les inégalités et le taux de pauvreté du département 82
+```{r }
+# Graphique bivarié
+donne_dep%>%
+  ggplot(aes(x = RD16, y = TP6016)) +
+  geom_point(alpha = 0.6, color = "darkblue", na.rm=T) +
+  geom_smooth(method = "lm", se = TRUE, color = "red",na.rm=T) +
+  labs(
+    title = "Relation entre les inégalités et le taux de pauvreté (Dép. 82)",
+    subtitle = "Chaque point représente une commune",
+    x = "Rapport interdécile",
+    y = "Taux de pauvreté (%)"
+  ) +
+  theme_minimal()
+
+
+```
+
+
+Le test de Shapiro Wilk indique une normalité de la distribution de la variable TP6016 dont la p-value = 0.3206 contrairement à la variable RD16 dont la distribution ne semble pas être normale avec une  p-value = 0.01274. Donc le test de Pearson n'est pas adapté. Procedons au test de spearman.
+
+```{r }
+ coef_spearman <- cor(x = donne_dep$RD16,y = donne_dep$TP6016, method = "spearman",
+                     use = "complete.obs")
+coef_spearman
+```
+*Cette analyse bivariée met en évidence une forte corrélation positive entre le niveau d'inégalités et le taux de pauvreté des communes du département 82, qui confirmée par le modèle à 72% et par le  coefficientde spearman (0.896838). En effet, les communes présentant un rapport interdécile plus élevé tendent à afficher des taux de pauvreté plus importants, ce qui suggère que les écarts de revenus impactent fortement le train de vie des ménages. Ceux sont des territoires où il existe un écart très important entre les groupes sociaux.Les inégalités internes peuvent alors traduire une segmentation du marché du travail ou une répartition inégale des opportunités économiques entre les communes. À l’inverse, les communes où les inégalités sont plus faibles présentent souvent des taux de pauvreté plus modérés, ce qui correspond à des structures sociales plus homogènes. Cette relation suggère que, dans le département, les territoires les plus inégalitaires sont également ceux où la fragilité sociale est la plus marquée.*
+
+
+
+
+##      Synethèse
+
+Le département 82 se caractérise par une situation économique globalement moins favorable que la moyenne nationale. Le niveau de vie médian y est plus faible et le département se situe dans la partie basse du classement national, ce qui traduit des revenus plus modestes pour une grande partie des ménages. Ce positionnement confirme le profil d’un territoire moins dynamique économiquement que les grandes zones urbaines. Parallèlement, le taux de pauvreté apparaît plus élevé que dans l’ensemble du pays, ce qui met en évidence une fragilité sociale plus marquée. Cette situation est cohérente avec le niveau de vie observé et peut s’expliquer par une structure économique plus rurale, une moindre présence d’emplois qualifiés et des opportunités économiques plus limitées. Toutefois, l’analyse des inégalités montre que le rapport interdécile reste relativement modéré, ce qui indique une dispersion des revenus moins importante que dans certains territoires. Les communes du département présentent ainsi des niveaux de vie relativement proches les uns des autres, traduisant une structure sociale plutôt homogène. Enfin, les analyses bivariées confirment que les communes les plus modestes sont aussi celles où la pauvreté et les inégalités sont les plus élevées. Le département apparaît donc comme un territoire relativement homogène mais globalement moins favorisé que la moyenne nationale, avec des revenus plus faibles et une pauvreté plus présente.
+
+
+
+#         Conclusion
+
+Ce projet m’a permis de mieux maîtriser l’utilisation de R pour l’analyse de données, notamment à travers la création et l’utilisation de fonctions pour automatiser les analyses descriptives et bivariées. J’ai également compris l’importance de structurer le code de manière claire et cohérente afin de faciliter son interprétation et sa réutilisation. L’utilisation d’un document R Markdown s’est révélée particulièrement utile pour assurer la reproductibilité du travail, en combinant dans un même fichier le code, les résultats et les commentaires. Cela permet de vérifier facilement les analyses et de reproduire les résultats dans les mêmes conditions. Enfin, ce projet m’a permis de mieux comprendre les indicateurs de niveau de vie, de pauvreté et d’inégalités, ainsi que les différences territoriales qui existent entre les départements et les communes françaises. L’analyse a montré l’intérêt de croiser plusieurs indicateurs pour obtenir une vision plus complète de la situation socio-économique d’un territoire.
+En résumé, ce projet m’a fait progresser en R, en rigueur et en analyse de données.
+
+
+
+# Annexe 
+
+Les informations de session ci-dessous participent à la reproductibilité du projet en permettant d’identifier les versions de R et des packages utilisés.
+
+```{r sessioninfo, echo=TRUE}
+sessionInfo()
+```
+
