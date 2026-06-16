@@ -19,8 +19,8 @@ Analyse-des-revenus-et-de-la-pauvret-en-France/
 
 - Rapport.Rmd          # Script principal (reproductible)
 - Rapport.html         # Rapport compilé
--Projet_Logiciels_LSI.pdf  # Énoncé du projet
--README.md             # Mon nom et prénom et mon département choisi
+- Projet_Logiciels_LSI.pdf  # Énoncé du projet
+- README.md             # Mon nom et prénom et mon département choisi
 
 ## Outils utilisés
 - **R / RStudio**
